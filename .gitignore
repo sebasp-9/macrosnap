@@ -1,0 +1,11 @@
+# Local dev preview config (references a machine-specific path)
+.claude/
+
+# IntelliJ / IDE project files
+.idea/
+*.iml
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.log

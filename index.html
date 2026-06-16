@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Lock down where the app may send/load data. Your key can ONLY go to these AI providers. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com; base-uri 'none'; form-action 'none'; object-src 'none'" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>MacroSnap</title>
+  <meta name="description" content="Snap or speak your meals — AI counts the calories and protein." />
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#16a34a" />
+
+  <!-- iOS home-screen app -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="MacroSnap" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <button id="prevDay" class="icon-btn" aria-label="Previous day">‹</button>
+    <div class="topbar-title">
+      <h1>MacroSnap</h1>
+      <button id="dayLabel" class="day-label">Today</button>
+    </div>
+    <button id="settingsBtn" class="icon-btn" aria-label="Settings">⚙︎</button>
+  </header>
+
+  <main id="app">
+    <!-- Daily summary -->
+    <section class="summary">
+      <div class="ring-row">
+        <div class="stat">
+          <div class="stat-value"><span id="calNow">0</span><span class="stat-sub">/ <span id="calGoal">2000</span></span></div>
+          <div class="stat-label">Calories</div>
+          <div class="bar"><div id="calBar" class="bar-fill cal"></div></div>
+        </div>
+        <div class="stat">
+          <div class="stat-value"><span id="proNow">0</span><span class="stat-sub">/ <span id="proGoal">150</span> g</span></div>
+          <div class="stat-label">Protein</div>
+          <div class="bar"><div id="proBar" class="bar-fill pro"></div></div>
+        </div>
+      </div>
+      <div class="summary-foot">
+        <span id="reqCount" class="req-count">🤖 0 AI requests today</span>
+      </div>
+    </section>
+
+    <!-- Setup hint when no key -->
+    <div id="setupHint" class="hint hidden">
+      👋 Add a free AI key to start logging. <button id="hintSettings" class="link">Open setup</button>
+    </div>
+
+    <!-- Offline queue badge -->
+    <div id="queueBadge" class="hint queue hidden">
+      📴 <span id="queueCount">0</span> meal(s) waiting — I'll analyze them automatically when you're back online.
+    </div>
+
+    <!-- Log list -->
+    <section class="log">
+      <h2 class="section-title">Log</h2>
+      <ul id="logList" class="log-list"></ul>
+      <p id="emptyLog" class="empty">No food logged yet. Tap ＋ below.</p>
+    </section>
+  </main>
+
+  <!-- Action bar -->
+  <nav class="actionbar">
+    <button id="photoBtn" class="action">📷<span>Photo</span></button>
+    <button id="describeBtn" class="action primary">＋<span>Add food</span></button>
+    <button id="manualBtn" class="action">✍️<span>Manual</span></button>
+  </nav>
+
+  <!-- Hidden camera input -->
+  <input id="photoInput" type="file" accept="image/*" capture="environment" hidden />
+
+  <!-- Add-food sheet -->
+  <div id="addSheet" class="sheet hidden" role="dialog" aria-modal="true">
+    <div class="sheet-card">
+      <div class="sheet-handle"></div>
+      <h3 id="addTitle">Add food</h3>
+
+      <img id="previewImg" class="preview hidden" alt="Food photo preview" />
+
+      <label class="field">
+        <span>Describe it (optional with a photo)</span>
+        <div class="describe-row">
+          <textarea id="descInput" rows="2" placeholder="e.g. two scrambled eggs and a slice of toast"></textarea>
+          <button id="micBtn" class="mic" aria-label="Dictate">🎙</button>
+        </div>
+        <small class="muted">Tip: tap the 🎤 on your keyboard to speak instead of type.</small>
+      </label>
+
+      <button id="analyzeBtn" class="btn-primary">✨ Analyze with AI</button>
+      <div id="analyzeStatus" class="status hidden"></div>
+
+      <!-- AI results, editable -->
+      <div id="resultBox" class="result-box hidden">
+        <h4>Detected — edit if needed, then save</h4>
+        <ul id="resultList" class="result-list"></ul>
+        <button id="addItemRow" class="link">＋ Add a row</button>
+        <div class="result-total">
+          <span><b id="resCal">0</b> kcal</span>
+          <span><b id="resPro">0</b> g protein</span>
+        </div>
+        <button id="saveBtn" class="btn-primary">Save to log</button>
+      </div>
+
+      <button id="closeSheet" class="btn-ghost">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Settings sheet -->
+  <div id="settingsSheet" class="sheet hidden" role="dialog" aria-modal="true">
+    <div class="sheet-card">
+      <div class="sheet-handle"></div>
+      <h3>Settings</h3>
+
+      <label class="field">
+        <span>AI provider</span>
+        <select id="providerSel">
+          <option value="gemini">Google Gemini (free tier)</option>
+          <option value="openai">OpenAI (ChatGPT)</option>
+          <option value="claude">Anthropic (Claude)</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>API key</span>
+        <input id="keyInput" type="password" autocomplete="off" placeholder="Paste your key" />
+        <small id="keyHelp" class="muted"></small>
+      </label>
+
+      <label class="field">
+        <span>Model</span>
+        <input id="modelInput" type="text" autocomplete="off" placeholder="model name" />
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Daily calories</span>
+          <input id="calGoalInput" type="number" inputmode="numeric" min="0" />
+        </label>
+        <label class="field">
+          <span>Daily protein (g)</span>
+          <input id="proGoalInput" type="number" inputmode="numeric" min="0" />
+        </label>
+      </div>
+
+      <button id="saveSettings" class="btn-primary">Save</button>
+      <div class="settings-foot">
+        <button id="exportData" class="link">Export data</button>
+        <button id="closeSettings" class="btn-ghost">Close</button>
+      </div>
+      <p class="muted tiny">Your key and food log stay on this device. Photos are sent only to the provider you choose, only when you tap Analyze.</p>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
