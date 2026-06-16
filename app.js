@@ -59,12 +59,97 @@ function loadSettings() {
   try { return normalizeSettings(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); }
   catch { return normalizeSettings({}); }
 }
-function saveSettingsObj(s) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
+// The API key is NEVER persisted to localStorage in plaintext — it's encrypted in
+// IndexedDB via storeApiKey(). We strip it here so no code path can leak it to disk.
+function saveSettingsObj(s) { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, apiKey: '' })); }
 
 function loadLog() {
   try { return JSON.parse(localStorage.getItem(LOG_KEY) || '{}'); } catch { return {}; }
 }
 function saveLog(log) { localStorage.setItem(LOG_KEY, JSON.stringify(log)); }
+
+// ---------- Encrypted API-key storage (WebCrypto + IndexedDB) ----------
+// The key is never stored in plaintext. A 256-bit AES-GCM key is generated as
+// NON-EXTRACTABLE: script can decrypt with it but can't export its raw bytes, and
+// it lives in IndexedDB (which a service worker/cache can't expose). Only the
+// ciphertext + IV are persisted. The decrypted key exists in memory (settings.apiKey)
+// for the session only. This removes plaintext-at-rest; it does not (and cannot)
+// stop a live same-origin XSS — that's handled by the strict CSP + safe rendering.
+const SECRET_DB = 'macrosnap-secret';
+function cryptoOK() { return !!(window.crypto && window.crypto.subtle); }
+
+function secretDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(SECRET_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv', { keyPath: 'id' });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function secretGet(id) {
+  return secretDB().then((db) => new Promise((res, rej) => {
+    const r = db.transaction('kv', 'readonly').objectStore('kv').get(id);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => rej(r.error);
+  }));
+}
+function secretPut(rec) {
+  return secretDB().then((db) => new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').put(rec);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  }));
+}
+function secretDelete(id) {
+  return secretDB().then((db) => new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').delete(id);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  }));
+}
+
+// Get-or-create the non-extractable AES-GCM key (stored as a CryptoKey object).
+async function getCryptoKey() {
+  const existing = await secretGet('aeskey');
+  if (existing && existing.key) return existing.key;
+  const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  await secretPut({ id: 'aeskey', key });
+  return key;
+}
+
+async function storeApiKey(plain) {
+  if (!cryptoOK()) return; // non-secure context: key stays in memory only this session
+  if (!plain) { await secretDelete('apikey'); return; }
+  const key = await getCryptoKey();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plain));
+  await secretPut({ id: 'apikey', iv, data: ct });
+}
+
+async function loadApiKey() {
+  if (!cryptoOK()) return '';
+  try {
+    const [rec, kr] = await Promise.all([secretGet('apikey'), secretGet('aeskey')]);
+    if (!rec || !kr || !kr.key) return '';
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: rec.iv }, kr.key, rec.data);
+    return new TextDecoder().decode(pt);
+  } catch { return ''; }
+}
+
+// Run once at startup: migrate any legacy plaintext key out of localStorage, then
+// load the decrypted key into memory for this session.
+async function initKey() {
+  if (!cryptoOK()) return; // leave settings.apiKey as loaded (degraded, non-secure context)
+  if (settings.apiKey) {
+    // Legacy plaintext key found in localStorage → encrypt it, scrub the plaintext.
+    await storeApiKey(settings.apiKey);
+    saveSettingsObj(settings); // rewrites localStorage with apiKey:''
+  } else {
+    settings.apiKey = await loadApiKey();
+  }
+}
 
 // ---------- State ----------
 let settings = loadSettings();
@@ -434,7 +519,7 @@ function updateProviderHelp() {
   if (!$('modelInput').value.trim()) $('modelInput').placeholder = p.defaultModel;
 }
 
-function saveSettings() {
+async function saveSettings() {
   settings = normalizeSettings({
     provider: $('providerSel').value,
     apiKey: $('keyInput').value.trim(),
@@ -442,7 +527,8 @@ function saveSettings() {
     calGoal: $('calGoalInput').value,
     proGoal: $('proGoalInput').value,
   });
-  saveSettingsObj(settings);
+  await storeApiKey(settings.apiKey); // encrypt to IndexedDB (or clear if emptied)
+  saveSettingsObj(settings);          // localStorage WITHOUT the key
   closeSettings();
   render();
 }
@@ -625,7 +711,7 @@ function openRecap() {
 }
 
 // ---------- Wire up ----------
-function init() {
+async function init() {
   // Provider model placeholder defaults
   $('providerSel').addEventListener('change', () => {
     $('modelInput').value = '';
@@ -662,6 +748,7 @@ function init() {
   });
 
   setupMic();
+  await initKey(); // decrypt key into memory (and migrate any legacy plaintext key)
   render();
   updateReqCount();
   refreshQueueBadge();

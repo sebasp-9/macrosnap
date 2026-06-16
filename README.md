@@ -51,7 +51,7 @@ iPhones need an HTTPS link to install a web app, and GitHub Pages gives you one 
 > Any static HTTPS host works (Netlify, Cloudflare Pages, etc.) — it's just static files, no build step.
 
 ## Privacy
-- **Your key** is stored only in this browser, never in the code, and never sent anywhere except the AI provider you chose. The app even uses a Content-Security-Policy that blocks it from talking to anything else. Treat the key like a password and lock your phone.
+- **Your key** is stored only in this browser, never in the code, and never sent anywhere except the AI provider you chose. It's **encrypted at rest** with a non-extractable AES-GCM key (Web Crypto) and kept in IndexedDB — never as plaintext in localStorage. The app also uses a Content-Security-Policy that blocks it from talking to anything else. Treat the key like a password and lock your phone.
 - **Your food log** stays on your device. Use **Export data** in Settings to back it up as JSON.
 - **What gets sent:** only your photo and/or text, only to your chosen provider, only when you tap Analyze. Nothing else.
 
