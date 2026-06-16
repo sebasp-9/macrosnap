@@ -23,15 +23,24 @@
 </head>
 <body>
   <header class="topbar">
-    <button id="prevDay" class="icon-btn" aria-label="Previous day">‹</button>
+    <div class="topbar-spacer"></div>
     <div class="topbar-title">
       <h1>MacroSnap</h1>
-      <button id="dayLabel" class="day-label">Today</button>
     </div>
-    <button id="settingsBtn" class="icon-btn" aria-label="Settings">⚙︎</button>
+    <div class="topbar-actions">
+      <button id="recapBtn" class="icon-btn" aria-label="Week & month recap">📊</button>
+      <button id="settingsBtn" class="icon-btn" aria-label="Settings">⚙︎</button>
+    </div>
   </header>
 
   <main id="app">
+    <!-- Day navigation -->
+    <div class="daynav">
+      <button id="prevDay" class="day-btn" aria-label="Previous day">‹</button>
+      <button id="dayLabel" class="day-label">Today</button>
+      <button id="nextDay" class="day-btn" aria-label="Next day">›</button>
+    </div>
+
     <!-- Daily summary -->
     <section class="summary">
       <div class="ring-row">
@@ -158,6 +167,16 @@
         <button id="closeSettings" class="btn-ghost">Close</button>
       </div>
       <p class="muted tiny">Your key and food log stay on this device. Photos are sent only to the provider you choose, only when you tap Analyze.</p>
+    </div>
+  </div>
+
+  <!-- Recap sheet -->
+  <div id="recapSheet" class="sheet hidden" role="dialog" aria-modal="true">
+    <div class="sheet-card">
+      <div class="sheet-handle"></div>
+      <h3>📊 Recap</h3>
+      <div id="recapBody"></div>
+      <button id="closeRecap" class="btn-ghost">Close</button>
     </div>
   </div>
 

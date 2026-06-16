@@ -73,6 +73,7 @@ function render() {
   $('dayLabel').textContent = isToday(viewDate)
     ? 'Today'
     : viewDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  $('nextDay').disabled = isToday(viewDate); // can't go past today
 
   const list = $('logList');
   list.innerHTML = '';
@@ -122,10 +123,10 @@ function handlePhoto(file) {
   reader.onload = () => {
     const dataUrl = reader.result;
     const mime = (dataUrl.match(/^data:(.*?);base64,/) || [])[1] || 'image/jpeg';
-    pendingImage = { base64: dataUrl.split(',')[1], mime };
+    openAddSheet(true); // open & reset the sheet FIRST...
+    pendingImage = { base64: dataUrl.split(',')[1], mime }; // ...then attach the photo so it isn't cleared
     $('previewImg').src = dataUrl;
     $('previewImg').classList.remove('hidden');
-    openAddSheet(true);
   };
   reader.readAsDataURL(file);
 }
@@ -533,6 +534,60 @@ function showToast(msg) {
   toastTimer = setTimeout(() => t.classList.add('hidden'), 4000);
 }
 
+// ---------- Recap (week / month) ----------
+function statsFor(daysBack) {
+  const log = loadLog();
+  const today = new Date();
+  let totalCal = 0, totalPro = 0, daysLogged = 0;
+  const perDay = [];
+  for (let i = 0; i < daysBack; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const items = log[dateKey(d)] || [];
+    const cal = items.reduce((s, x) => s + num(x.calories), 0);
+    const pro = items.reduce((s, x) => s + num(x.protein), 0);
+    if (items.length) { daysLogged++; totalCal += cal; totalPro += pro; }
+    perDay.push({ d, cal, pro, logged: items.length > 0 });
+  }
+  return { totalCal, totalPro, daysLogged, perDay };
+}
+
+function openRecap() {
+  const avg = (t, n) => (n ? Math.round(t / n) : null);
+  const fmt = (v) => (v == null ? '—' : v.toLocaleString());
+  const block = (title, sub, s) => `
+    <div class="recap-block">
+      <div class="recap-h">${title} <span>${sub}</span></div>
+      <div class="recap-stats">
+        <div><b>${fmt(avg(s.totalCal, s.daysLogged))}</b><span>avg kcal/day</span></div>
+        <div><b>${fmt(avg(s.totalPro, s.daysLogged))}</b><span>avg g protein/day</span></div>
+        <div><b>${s.daysLogged}</b><span>days logged</span></div>
+      </div>
+    </div>`;
+
+  const wk = statsFor(7);
+  const mo = statsFor(30);
+  const maxCal = Math.max(settings.calGoal || 1, ...wk.perDay.map((p) => p.cal), 1);
+  const days = wk.perDay.map((p) => {
+    const label = isToday(p.d) ? 'Today' : p.d.toLocaleDateString(undefined, { weekday: 'short' });
+    const pct = Math.min(100, (p.cal / maxCal) * 100);
+    return `<li class="recap-day">
+      <span class="rd-day">${label}</span>
+      <div class="rd-bar"><div style="width:${pct}%"></div></div>
+      <span class="rd-val">${p.logged ? Math.round(p.cal) : '—'}</span>
+    </li>`;
+  }).join('');
+
+  $('recapBody').innerHTML =
+    block('This week', 'last 7 days', wk) +
+    block('This month', 'last 30 days', mo) +
+    `<div class="recap-block">
+      <div class="recap-h">Daily calories <span>last 7 days</span></div>
+      <ul class="recap-days">${days}</ul>
+    </div>`;
+  $('recapSheet').classList.remove('hidden');
+}
+
 // ---------- Wire up ----------
 function init() {
   // Provider model placeholder defaults
@@ -559,7 +614,11 @@ function init() {
   $('exportData').onclick = exportData;
 
   $('prevDay').onclick = () => { viewDate.setDate(viewDate.getDate() - 1); render(); };
+  $('nextDay').onclick = () => { if (!isToday(viewDate)) { viewDate.setDate(viewDate.getDate() + 1); render(); } };
   $('dayLabel').onclick = () => { viewDate = new Date(); render(); };
+
+  $('recapBtn').onclick = openRecap;
+  $('closeRecap').onclick = () => $('recapSheet').classList.add('hidden');
 
   // Close sheets when tapping the dark backdrop
   document.querySelectorAll('.sheet').forEach((sheet) => {

@@ -41,6 +41,8 @@ body {
   backdrop-filter: blur(8px);
 }
 .topbar-title { text-align: center; }
+.topbar-actions { display: flex; gap: 8px; }
+.topbar-spacer { width: 88px; flex: none; } /* balances the two right-side buttons so the title stays centered */
 .topbar h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
 .day-label {
   background: none; border: none; color: var(--muted);
@@ -51,6 +53,21 @@ body {
   border-radius: 12px; border: 1px solid var(--line);
   background: var(--card); color: var(--text);
   font-size: 20px; cursor: pointer;
+}
+
+/* Day navigation */
+.daynav { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 6px 0 14px; }
+.day-btn {
+  width: 38px; height: 38px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--card); color: var(--text);
+  font-size: 22px; line-height: 1; cursor: pointer;
+}
+.day-btn:disabled { opacity: .3; cursor: default; }
+.daynav .day-label {
+  min-width: 130px; height: 38px; text-align: center;
+  color: var(--text); font-size: 15px; font-weight: 600;
+  border: 1px solid var(--line); background: var(--card); border-radius: 10px;
+  padding: 0 14px; cursor: pointer;
 }
 
 main { padding: 4px 14px 120px; max-width: 560px; margin: 0 auto; }
@@ -198,3 +215,18 @@ small.muted { font-size: 11px; }
 .result-total b { font-size: 18px; }
 
 .settings-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 6px; }
+
+/* Recap */
+.recap-block { background: var(--card-2); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+.recap-h { font-size: 13px; color: var(--text); font-weight: 600; margin-bottom: 10px; }
+.recap-h span { color: var(--muted); font-weight: 400; font-size: 11px; }
+.recap-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.recap-stats > div { display: flex; flex-direction: column; gap: 2px; }
+.recap-stats b { font-size: 20px; }
+.recap-stats span { font-size: 10px; color: var(--muted); }
+.recap-days { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.recap-day { display: grid; grid-template-columns: 48px 1fr 46px; gap: 8px; align-items: center; }
+.rd-day { font-size: 12px; color: var(--muted); }
+.rd-bar { height: 8px; background: var(--card); border-radius: 99px; overflow: hidden; }
+.rd-bar > div { height: 100%; background: linear-gradient(90deg, var(--amber), #fbbf24); border-radius: 99px; }
+.rd-val { font-size: 12px; text-align: right; }
