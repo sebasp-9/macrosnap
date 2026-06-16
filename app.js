@@ -1,6 +1,13 @@
 /* MacroSnap — bring-your-own-key calorie & protein tracker (PWA) */
 'use strict';
 
+// Clickjacking defense-in-depth: refuse to run inside a frame.
+// (frame-ancestors can't be set via <meta> on static hosting like GitHub Pages.)
+if (window.top !== window.self) {
+  try { window.top.location = window.location.href; }
+  catch (e) { document.documentElement.style.display = 'none'; }
+}
+
 // ---------- Config ----------
 const PROVIDERS = {
   gemini: {
@@ -202,10 +209,11 @@ async function callProvider(text, image) {
     const parts = [{ text: userText }];
     if (image) parts.push({ inline_data: { mime_type: image.mime, data: image.base64 } });
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(settings.apiKey)}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        // Key goes in a header, never the URL (avoids leaking it into logs/history).
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': settings.apiKey },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
           contents: [{ role: 'user', parts }],
@@ -570,10 +578,11 @@ function openRecap() {
   const maxCal = Math.max(settings.calGoal || 1, ...wk.perDay.map((p) => p.cal), 1);
   const days = wk.perDay.map((p) => {
     const label = isToday(p.d) ? 'Today' : p.d.toLocaleDateString(undefined, { weekday: 'short' });
-    const pct = Math.min(100, (p.cal / maxCal) * 100);
+    const pct = Math.max(0, Math.min(100, (p.cal / maxCal) * 100));
+    // width is set via CSSOM below (no inline style attribute — keeps the CSP strict)
     return `<li class="recap-day">
       <span class="rd-day">${label}</span>
-      <div class="rd-bar"><div style="width:${pct}%"></div></div>
+      <div class="rd-bar"><div data-pct="${pct}"></div></div>
       <span class="rd-val">${p.logged ? Math.round(p.cal) : '—'}</span>
     </li>`;
   }).join('');
@@ -585,6 +594,10 @@ function openRecap() {
       <div class="recap-h">Daily calories <span>last 7 days</span></div>
       <ul class="recap-days">${days}</ul>
     </div>`;
+  // Apply bar widths programmatically (allowed by CSP; inline style attributes are not).
+  $('recapBody').querySelectorAll('.rd-bar > div').forEach((el) => {
+    el.style.width = (parseFloat(el.dataset.pct) || 0) + '%';
+  });
   $('recapSheet').classList.remove('hidden');
 }
 
