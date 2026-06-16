@@ -2,20 +2,43 @@
 # Run:  powershell -ExecutionPolicy Bypass -File serve.ps1
 # Then open http://localhost:8000 in your browser.
 $port = 8000
-$root = $PSScriptRoot
+# Canonical, absolute web root. Everything served MUST resolve to inside this.
+$root = [System.IO.Path]::GetFullPath($PSScriptRoot)
+$rootPrefix = $root.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
 $listener = New-Object System.Net.HttpListener
+# Binding to "localhost" makes HttpListener match only requests whose Host header
+# is "localhost", which also blocks DNS-rebinding attacks from other origins.
 $listener.Prefixes.Add("http://localhost:$port/")
 $listener.Start()
 Write-Host "MacroSnap running at http://localhost:$port/  (Ctrl+C to stop)" -ForegroundColor Green
 while ($listener.IsListening) {
   $ctx = $listener.GetContext()
   try {
-    $path = [System.Uri]::UnescapeDataString($ctx.Request.Url.LocalPath).TrimStart('/')
-    if ([string]::IsNullOrEmpty($path)) { $path = 'index.html' }
-    $file = Join-Path $root $path
-    if (Test-Path $file -PathType Leaf) {
-      $bytes = [System.IO.File]::ReadAllBytes($file)
-      switch ([System.IO.Path]::GetExtension($file).ToLower()) {
+    # Defense-in-depth headers (the dev server can set the ones <meta> can't).
+    $ctx.Response.Headers['X-Content-Type-Options'] = 'nosniff'
+    $ctx.Response.Headers['X-Frame-Options'] = 'DENY'
+    $ctx.Response.Headers['Referrer-Policy'] = 'no-referrer'
+
+    # Only GET/HEAD make sense for a static file server.
+    if ($ctx.Request.HttpMethod -ne 'GET' -and $ctx.Request.HttpMethod -ne 'HEAD') {
+      $ctx.Response.StatusCode = 405
+      continue
+    }
+
+    $relative = [System.Uri]::UnescapeDataString($ctx.Request.Url.LocalPath).TrimStart('/')
+    if ([string]::IsNullOrEmpty($relative)) { $relative = 'index.html' }
+
+    # Resolve the requested path and REJECT anything that escapes the web root.
+    # GetFullPath collapses ../, %2e%2e and double-encoded sequences alike, so the
+    # containment check below defeats directory-traversal regardless of encoding.
+    $full = [System.IO.Path]::GetFullPath((Join-Path $root $relative))
+    $inRoot = $full.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+
+    if (-not $inRoot) {
+      $ctx.Response.StatusCode = 403
+    } elseif (Test-Path -LiteralPath $full -PathType Leaf) {
+      $bytes = [System.IO.File]::ReadAllBytes($full)
+      switch ([System.IO.Path]::GetExtension($full).ToLower()) {
         '.html'        { $ct = 'text/html; charset=utf-8' }
         '.js'          { $ct = 'text/javascript; charset=utf-8' }
         '.css'         { $ct = 'text/css; charset=utf-8' }
@@ -25,7 +48,12 @@ while ($listener.IsListening) {
         default        { $ct = 'application/octet-stream' }
       }
       $ctx.Response.ContentType = $ct
-      $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+      # HEAD: report metadata only, no body.
+      if ($ctx.Request.HttpMethod -eq 'GET') {
+        $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+      } else {
+        $ctx.Response.ContentLength64 = $bytes.Length
+      }
     } else {
       $ctx.Response.StatusCode = 404
     }

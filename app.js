@@ -36,10 +36,28 @@ const SYSTEM_PROMPT =
 const SETTINGS_KEY = 'macrosnap.settings';
 const LOG_KEY = 'macrosnap.log'; // { 'YYYY-MM-DD': [ {id,name,quantity,calories,protein,ts} ] }
 
-function loadSettings() {
+// Coerce whatever is in storage / the settings form into a known-good shape.
+// This is a security boundary: it whitelists `provider` against PROVIDERS (so an
+// API key can never be sent to an endpoint we didn't intend), copies ONLY known
+// keys (no prototype pollution or surprise fields from tampered storage), forces
+// types, and bounds lengths/goals.
+function normalizeSettings(raw) {
   const def = { provider: 'gemini', apiKey: '', model: '', calGoal: 2000, proGoal: 150 };
-  try { return Object.assign(def, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); }
-  catch { return def; }
+  if (!raw || typeof raw !== 'object') raw = {};
+  const goal = (v, d) => { const n = num(v); return (n > 0 && n <= 100000) ? Math.round(n) : d; };
+  const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+  return {
+    provider: Object.prototype.hasOwnProperty.call(PROVIDERS, raw.provider) ? raw.provider : def.provider,
+    apiKey: str(raw.apiKey, 500),
+    model: str(raw.model, 100),
+    calGoal: goal(raw.calGoal, def.calGoal),
+    proGoal: goal(raw.proGoal, def.proGoal),
+  };
+}
+
+function loadSettings() {
+  try { return normalizeSettings(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); }
+  catch { return normalizeSettings({}); }
 }
 function saveSettingsObj(s) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
 
@@ -190,12 +208,17 @@ function parseItems(text) {
   if (start !== -1 && end !== -1) t = t.slice(start, end + 1);
   let data;
   try { data = JSON.parse(t); } catch { return []; }
-  const arr = Array.isArray(data) ? data : (data.items || []);
-  return arr.map((i) => ({
-    name: String(i.name || i.food || 'Food'),
-    quantity: String(i.quantity || i.portion || ''),
-    calories: num(i.calories ?? i.kcal ?? i.cal),
-    protein: num(i.protein_g ?? i.protein ?? i.proteinGrams),
+  // The model's output is untrusted: tolerate any shape, then bound it so a
+  // malformed/oversized response can't bloat storage or skew totals.
+  const arr = Array.isArray(data)
+    ? data
+    : (data && typeof data === 'object' && Array.isArray(data.items) ? data.items : []);
+  const amount = (v) => Math.max(0, Math.min(100000, num(v))); // finite, non-negative, capped
+  return arr.slice(0, 50).filter((i) => i && typeof i === 'object').map((i) => ({
+    name: String(i.name || i.food || 'Food').slice(0, 120),
+    quantity: String(i.quantity || i.portion || '').slice(0, 120),
+    calories: amount(i.calories ?? i.kcal ?? i.cal),
+    protein: amount(i.protein_g ?? i.protein ?? i.proteinGrams),
   }));
 }
 
@@ -412,13 +435,13 @@ function updateProviderHelp() {
 }
 
 function saveSettings() {
-  settings = {
+  settings = normalizeSettings({
     provider: $('providerSel').value,
     apiKey: $('keyInput').value.trim(),
     model: $('modelInput').value.trim(),
-    calGoal: num($('calGoalInput').value) || 2000,
-    proGoal: num($('proGoalInput').value) || 150,
-  };
+    calGoal: $('calGoalInput').value,
+    proGoal: $('proGoalInput').value,
+  });
   saveSettingsObj(settings);
   closeSettings();
   render();
