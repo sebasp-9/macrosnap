@@ -217,28 +217,45 @@ function deleteItem(key, id) {
 }
 
 // ---------- Add-food sheet ----------
-function openAddSheet(withPhoto) {
+// Reflect whether a photo is attached: show/hide the preview + Remove button and
+// flip the photo button between "Add a photo" / "Change photo".
+function reflectPhotoState() {
+  const has = !!pendingImage;
+  $('previewImg').classList.toggle('hidden', !has);
+  $('removePhotoBtn').classList.toggle('hidden', !has);
+  $('addPhotoLabel').textContent = has ? 'Change photo' : 'Add a photo';
+}
+
+function openAddSheet() {
   pendingImage = null;
   $('descInput').value = '';
-  $('previewImg').classList.add('hidden');
+  $('previewImg').removeAttribute('src');
   $('resultBox').classList.add('hidden');
   $('analyzeStatus').classList.add('hidden');
-  $('addTitle').textContent = withPhoto ? 'Photo of meal' : 'Add food';
+  reflectPhotoState();
+  $('addTitle').textContent = 'Add food';
   $('addSheet').classList.remove('hidden');
 }
 function closeAddSheet() { $('addSheet').classList.add('hidden'); }
 
+// Attach a photo to whatever is already in the open sheet (does NOT reset typed
+// text or manual rows). Used by both the Add-food and Manual flows.
 function handlePhoto(file) {
   const reader = new FileReader();
   reader.onload = () => {
     const dataUrl = reader.result;
     const mime = (dataUrl.match(/^data:(.*?);base64,/) || [])[1] || 'image/jpeg';
-    openAddSheet(true); // open & reset the sheet FIRST...
-    pendingImage = { base64: dataUrl.split(',')[1], mime }; // ...then attach the photo so it isn't cleared
+    pendingImage = { base64: dataUrl.split(',')[1], mime };
     $('previewImg').src = dataUrl;
-    $('previewImg').classList.remove('hidden');
+    reflectPhotoState();
   };
   reader.readAsDataURL(file);
+}
+
+function clearPendingPhoto() {
+  pendingImage = null;
+  $('previewImg').removeAttribute('src');
+  reflectPhotoState();
 }
 
 // ---------- AI analysis ----------
@@ -258,7 +275,8 @@ async function analyze() {
   }
 
   setStatus('Analyzing…', false);
-  $('analyzeBtn').disabled = true;
+  const analyzeBtn = $('analyzeBtn');
+  analyzeBtn.disabled = true;
   try {
     const items = await callProvider(text, pendingImage);
     showResults(items);
@@ -273,7 +291,7 @@ async function analyze() {
       setStatus(typeof err?.message === 'string' ? err.message : 'Something went wrong.', true);
     }
   } finally {
-    $('analyzeBtn').disabled = false;
+    analyzeBtn.disabled = false;
   }
 }
 
@@ -384,7 +402,7 @@ async function callProvider(text, image) {
 }
 
 async function errText(res) {
-  let detail = '';
+  let detail;
   try {
     const j = await res.json();
     detail = j?.error?.message || j?.error?.type || JSON.stringify(j);
@@ -466,7 +484,7 @@ function saveResults() {
 
 // ---------- Manual add ----------
 function manualAdd() {
-  openAddSheet(false);
+  openAddSheet();
   showResults([{ name: '', quantity: '', calories: 0, protein: 0 }]);
   $('analyzeStatus').classList.add('hidden');
 }
@@ -516,7 +534,8 @@ function closeSettings() { $('settingsSheet').classList.add('hidden'); }
 function updateProviderHelp() {
   const p = PROVIDERS[$('providerSel').value];
   $('keyHelp').textContent = p.keyHelp;
-  if (!$('modelInput').value.trim()) $('modelInput').placeholder = p.defaultModel;
+  const modelInput = $('modelInput');
+  if (!modelInput.value.trim()) modelInput.placeholder = p.defaultModel;
 }
 
 async function saveSettings() {
@@ -696,7 +715,8 @@ function openRecap() {
     </li>`;
   }).join('');
 
-  $('recapBody').innerHTML =
+  const recapBody = $('recapBody');
+  recapBody.innerHTML =
     block('This week', 'last 7 days', wk) +
     block('This month', 'last 30 days', mo) +
     `<div class="recap-block">
@@ -704,7 +724,7 @@ function openRecap() {
       <ul class="recap-days">${days}</ul>
     </div>`;
   // Apply bar widths programmatically (allowed by CSP; inline style attributes are not).
-  $('recapBody').querySelectorAll('.rd-bar > div').forEach((el) => {
+  recapBody.querySelectorAll('.rd-bar > div').forEach((el) => {
     el.style.width = (parseFloat(el.dataset.pct) || 0) + '%';
   });
   $('recapSheet').classList.remove('hidden');
@@ -714,14 +734,17 @@ function openRecap() {
 async function init() {
   // Provider model placeholder defaults
   $('providerSel').addEventListener('change', () => {
-    $('modelInput').value = '';
-    $('modelInput').placeholder = PROVIDERS[$('providerSel').value].defaultModel;
+    const modelInput = $('modelInput');
+    modelInput.value = '';
+    modelInput.placeholder = PROVIDERS[$('providerSel').value].defaultModel;
     updateProviderHelp();
   });
 
-  $('photoBtn').onclick = () => $('photoInput').click();
-  $('photoInput').onchange = (e) => { if (e.target.files[0]) handlePhoto(e.target.files[0]); e.target.value = ''; };
-  $('describeBtn').onclick = () => openAddSheet(false);
+  const photoInput = $('photoInput');
+  photoInput.onchange = (e) => { if (e.target.files[0]) handlePhoto(e.target.files[0]); e.target.value = ''; };
+  $('addPhotoBtn').onclick = () => photoInput.click();
+  $('removePhotoBtn').onclick = clearPendingPhoto;
+  $('describeBtn').onclick = () => openAddSheet();
   $('manualBtn').onclick = manualAdd;
 
   $('analyzeBtn').onclick = analyze;

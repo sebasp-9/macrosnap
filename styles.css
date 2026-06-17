@@ -85,7 +85,7 @@ main { padding: 4px 14px 120px; max-width: 560px; margin: 0 auto; }
 .stat-sub { font-size: 14px; color: var(--muted); font-weight: 500; margin-left: 4px; }
 .stat-label { font-size: 12px; color: var(--muted); margin: 2px 0 8px; text-transform: uppercase; letter-spacing: .5px; }
 .bar { height: 8px; background: var(--card-2); border-radius: 99px; overflow: hidden; }
-.bar-fill { height: 100%; width: 0%; border-radius: 99px; transition: width .35s ease; }
+.bar-fill { height: 100%; width: 0; border-radius: 99px; transition: width .35s ease; }
 .bar-fill.cal { background: linear-gradient(90deg, var(--amber), #fbbf24); }
 .bar-fill.pro { background: linear-gradient(90deg, var(--green), var(--green-2)); }
 
@@ -186,6 +186,19 @@ textarea { resize: vertical; }
 small.muted { font-size: 11px; }
 
 .preview { width: 100%; max-height: 240px; object-fit: cover; border-radius: 14px; margin-bottom: 12px; }
+
+/* Photo control inside the add sheet */
+.photo-row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 14px; }
+.btn-photo {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--card-2); color: var(--text);
+  border: 1px dashed var(--green); border-radius: 14px;
+  padding: 14px; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.btn-removephoto {
+  background: none; border: 1px solid var(--line); color: var(--muted);
+  border-radius: 12px; padding: 0 16px; font-size: 13px; cursor: pointer;
+}
 
 /* Buttons */
 .btn-primary {

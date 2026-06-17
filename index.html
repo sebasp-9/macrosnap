@@ -80,7 +80,6 @@
 
   <!-- Action bar -->
   <nav class="actionbar">
-    <button id="photoBtn" class="action">📷<span>Photo</span></button>
     <button id="describeBtn" class="action primary">＋<span>Add food</span></button>
     <button id="manualBtn" class="action">✍️<span>Manual</span></button>
   </nav>
@@ -96,12 +95,17 @@
 
       <img id="previewImg" class="preview hidden" alt="Food photo preview" />
 
+      <div class="photo-row">
+        <button id="addPhotoBtn" class="btn-photo" type="button">📷 <span id="addPhotoLabel">Add a photo</span></button>
+        <button id="removePhotoBtn" class="btn-removephoto hidden" type="button">Remove</button>
+      </div>
+
       <label class="field">
         <span>Describe it (optional with a photo)</span>
-        <div class="describe-row">
+        <span class="describe-row">
           <textarea id="descInput" rows="2" placeholder="e.g. two scrambled eggs and a slice of toast"></textarea>
           <button id="micBtn" class="mic" aria-label="Dictate">🎙</button>
-        </div>
+        </span>
         <small class="muted">Tip: tap the 🎤 on your keyboard to speak instead of type.</small>
       </label>
 
