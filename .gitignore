@@ -1,6 +1,3 @@
-# Local dev preview config (references a machine-specific path)
-.claude/
-
 # IntelliJ / IDE project files
 .idea/
 *.iml

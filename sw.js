@@ -1,5 +1,5 @@
 /* Simple_Calorie_Tracker service worker — offline app shell (network-first) */
-const CACHE = 'sct-v5';
+const CACHE = 'simple_calorie_tracker-v6';
 const ASSETS = [
   './',
   './index.html',

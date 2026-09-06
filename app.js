@@ -33,8 +33,8 @@ const SYSTEM_PROMPT =
   'calories is kcal for that portion; protein_g is grams. Use realistic estimates. If you truly cannot tell, return {"items":[]}.';
 
 // ---------- Storage ----------
-const SETTINGS_KEY = 'macrosnap.settings';
-const LOG_KEY = 'macrosnap.log'; // { 'YYYY-MM-DD': [ {id,name,quantity,calories,protein,ts} ] }
+const SETTINGS_KEY = 'simple_calorie_tracker.settings';
+const LOG_KEY = 'simple_calorie_tracker.log'; // { 'YYYY-MM-DD': [ {id,name,quantity,calories,protein,ts} ] }
 
 // How much history the app keeps. Anything older is deleted automatically (see
 // pruneOldData): local storage stays small and old meals don't linger on the device.
@@ -95,17 +95,21 @@ function saveLog(log) {
 // ciphertext + IV are persisted. The decrypted key exists in memory (settings.apiKey)
 // for the session only. This removes plaintext-at-rest; it does not (and cannot)
 // stop a live same-origin XSS — that's handled by the strict CSP + safe rendering.
-const SECRET_DB = 'macrosnap-secret';
+const SECRET_DB = 'simple_calorie_tracker-secret';
 function cryptoOK() { return !!(window.crypto && window.crypto.subtle); }
 
-function secretDB() {
+// Open (creating if needed) a database with a single id-keyed store.
+function openDB(name, store) {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(SECRET_DB, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore('kv', { keyPath: 'id' });
+    const req = indexedDB.open(name, 1);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(store)) req.result.createObjectStore(store, { keyPath: 'id' });
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
+function secretDB() { return openDB(SECRET_DB, 'kv'); }
 function secretGet(id) {
   return secretDB().then((db) => new Promise((res, rej) => {
     const r = db.transaction('kv', 'readonly').objectStore('kv').get(id);
@@ -191,6 +195,10 @@ let settings = loadSettings();
 let viewDate = new Date();
 let pendingImage = null; // { base64, mime }
 let preparingPhoto = false; // sanitising a photo takes a moment; block Analyze until it lands
+// Bumped whenever stored data is deliberately destroyed. Long-running work that writes to
+// storage captures it and stops if it changed underneath, so a queue drain that is already
+// in flight can't resurrect entries the user just deleted.
+let storageEpoch = 0;
 
 // ---------- Helpers ----------
 const $ = (id) => document.getElementById(id);
@@ -707,11 +715,19 @@ async function removeKey() {
 // its wrapping key, and anything queued. Irreversible, so it asks first.
 async function wipeAllData() {
   if (!confirm('Erase your food log, settings and saved API key on this device? This cannot be undone.')) return;
-  try {
-    [LOG_KEY, REQ_KEY, SETTINGS_KEY].forEach((k) => localStorage.removeItem(k));
-  } catch { /* storage blocked; nothing was stored anyway */ }
+  storageEpoch++;       // tell any in-flight queue drain to stop writing
+  settings.apiKey = ''; // and to stop making requests
+  const clearLocal = () => {
+    try { [LOG_KEY, REQ_KEY, SETTINGS_KEY].forEach((k) => localStorage.removeItem(k)); }
+    catch { /* storage blocked; nothing was stored anyway */ }
+  };
+  clearLocal();
   try { for (const q of await idbGetAll()) await idbDelete(q.id); } catch {}
   try { await secretDelete('apikey'); await secretDelete('aeskey'); } catch {}
+  // Clear again. Work that was already in flight when the wipe started can reach its own
+  // write between the awaits above (a queued request bumping the daily counter, say), and
+  // "Delete everything" must not leave a key behind because of that timing.
+  clearLocal();
   settings = normalizeSettings({});
   viewDate = new Date();
   closeSettings();
@@ -727,13 +743,13 @@ function exportData() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'simple-calorie-tracker-export.json';
+  a.download = 'simple_calorie_tracker-export.json';
   a.click();
   URL.revokeObjectURL(url); // otherwise the blob is pinned for the life of the page
 }
 
 // ---------- Daily request counter (free-tier budget awareness) ----------
-const REQ_KEY = 'macrosnap.reqcount';
+const REQ_KEY = 'simple_calorie_tracker.reqcount';
 function loadReq() { try { return JSON.parse(localStorage.getItem(REQ_KEY) || '{}'); } catch { return {}; } }
 function bumpRequestCount() {
   const c = loadReq();
@@ -752,14 +768,8 @@ function updateReqCount() {
 }
 
 // ---------- Offline queue (IndexedDB — holds photos too) ----------
-function idb() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open('macrosnap', 1);
-    req.onupgradeneeded = () => req.result.createObjectStore('queue', { keyPath: 'id' });
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
+const QUEUE_DB = 'simple_calorie_tracker';
+function idb() { return openDB(QUEUE_DB, 'queue'); }
 async function idbAdd(rec) {
   const db = await idb();
   return new Promise((res, rej) => {
@@ -825,9 +835,11 @@ async function processQueue() {
   try { items = await idbGetAll(); } catch { return; }
   if (!items.length) return;
   processing = true;
+  const epoch = storageEpoch;
   let logged = 0;
   try {
     for (const q of items) {
+      if (epoch !== storageEpoch) break; // data was wiped while we were working
       const payload = await readQueueRec(q);
       if (!payload) { await idbDelete(q.id); continue; } // undecryptable, drop it
       try {
@@ -930,6 +942,95 @@ function openRecap() {
     el.style.width = (parseFloat(el.dataset.pct) || 0) + '%';
   });
   $('recapSheet').classList.remove('hidden');
+}
+
+// ---------- One-time migration from the pre-rename storage names ----------
+// The app used to be called MacroSnap and its storage was named after it. Renaming the
+// keys without moving the data would silently orphan an existing food log and saved API
+// key, so everything is copied across once and the old copies are removed.
+// Safe to keep indefinitely: after the first run there is nothing left to find.
+const LEGACY_LOCAL = {
+  'macrosnap.settings': SETTINGS_KEY,
+  'macrosnap.log': LOG_KEY,
+  'macrosnap.reqcount': REQ_KEY,
+};
+const LEGACY_QUEUE_DB = 'macrosnap';
+const LEGACY_SECRET_DB = 'macrosnap-secret';
+
+// Open a database ONLY if it already exists. indexedDB.open() would otherwise create an
+// empty one, so a fresh install would conjure the very legacy databases we mean to retire.
+// A versionless open fires onupgradeneeded only when the database is new, which is the tell.
+function openIfExists(name, store) {
+  return new Promise((resolve) => {
+    let isNew = false;
+    let req;
+    try { req = indexedDB.open(name); } catch { resolve(null); return; }
+    req.onupgradeneeded = () => { isNew = true; };
+    req.onerror = () => resolve(null);
+    req.onsuccess = async () => {
+      const db = req.result;
+      const usable = !isNew && db.objectStoreNames.contains(store);
+      if (!usable) {
+        db.close();
+        // Await it: firing and forgetting leaves the empty database we just created
+        // sitting there, which is exactly the litter this function exists to avoid.
+        await deleteDB(name);
+        resolve(null);
+        return;
+      }
+      resolve(db);
+    };
+  });
+}
+
+function deleteDB(name) {
+  return new Promise((resolve) => {
+    let req;
+    try { req = indexedDB.deleteDatabase(name); } catch { resolve(); return; }
+    req.onsuccess = req.onerror = req.onblocked = () => resolve();
+  });
+}
+
+// Copy every record out of an old database into the new one, then drop the old database.
+// The AES wrapping key rides along as a CryptoKey object: it is non-extractable, but
+// structured cloning moves it intact, so the encrypted API key stays readable.
+async function migrateDB(oldName, newName, store) {
+  const oldDB = await openIfExists(oldName, store);
+  if (!oldDB) return 0;
+  const rows = await new Promise((res) => {
+    try {
+      const r = oldDB.transaction(store, 'readonly').objectStore(store).getAll();
+      r.onsuccess = () => res(r.result || []);
+      r.onerror = () => res([]);
+    } catch { res([]); }
+  });
+  if (rows.length) {
+    const newDB = await openDB(newName, store);
+    await new Promise((res, rej) => {
+      const tx = newDB.transaction(store, 'readwrite');
+      const os = tx.objectStore(store);
+      rows.forEach((row) => os.put(row));
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+    newDB.close();
+  }
+  oldDB.close();
+  await deleteDB(oldName);
+  return rows.length;
+}
+
+async function migrateLegacyStorage() {
+  for (const [oldKey, newKey] of Object.entries(LEGACY_LOCAL)) {
+    try {
+      const v = localStorage.getItem(oldKey);
+      if (v === null) continue;
+      if (localStorage.getItem(newKey) === null) localStorage.setItem(newKey, v);
+      localStorage.removeItem(oldKey);
+    } catch { /* storage blocked; nothing to move */ }
+  }
+  try { await migrateDB(LEGACY_QUEUE_DB, QUEUE_DB, 'queue'); } catch {}
+  try { await migrateDB(LEGACY_SECRET_DB, SECRET_DB, 'kv'); } catch {}
 }
 
 // ---------- Retention ----------
@@ -1039,6 +1140,11 @@ async function init() {
 
   setupMic();
   $('retentionDays').textContent = RETENTION_DAYS;
+  // Move anything stored under the old app name across before reading storage. `settings`
+  // was loaded at script load, before the move, so re-read it afterwards.
+  try { await migrateLegacyStorage(); } catch { /* nothing to move, or storage blocked */ }
+  settings = loadSettings();
+
   // Neither of these may take the app down with them. IndexedDB is unavailable outright
   // in some private-browsing modes, and before this an exception here meant the UI never
   // rendered at all: a blank, unusable app rather than a degraded one.

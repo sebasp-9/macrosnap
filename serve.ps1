@@ -42,7 +42,7 @@ while ($listener.IsListening) {
     $full = [System.IO.Path]::GetFullPath((Join-Path $root $relative))
     $inRoot = $full.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)
 
-    # Never serve dotfiles / dot-directories (.git, .idea, .claude, .env, .gitignore...).
+    # Never serve dotfiles / dot-directories (.git, .idea, .env, .gitignore...).
     # Checking the RESOLVED path's segments is authoritative regardless of URL encoding.
     $relToRoot = if ($full.Length -ge $rootPrefix.Length) { $full.Substring($rootPrefix.Length) } else { '' }
     $hasDotSegment = ($relToRoot -split '[\\/]+') | Where-Object { $_ -like '.*' }

@@ -42,9 +42,9 @@ Then open **http://localhost:8000**.
 ## 3. Put it on your phone (free hosting via GitHub Pages)
 iPhones need an HTTPS link to install a web app, and GitHub Pages gives you one for free:
 
-1. Push this repo to GitHub (it's already set up for `sebasp-9/macrosnap`).
+1. Push this repo to GitHub (`sebasp-9/Simple_Calorie_Tracker`).
 2. Repo → **Settings → Pages** → Source: `main` branch, `/ (root)` → Save.
-3. After a minute it's live at **https://sebasp-9.github.io/macrosnap/**.
+3. After a minute it's live at **https://sebasp-9.github.io/Simple_Calorie_Tracker/**.
 4. Open that URL in **Safari** → **Share** → **Add to Home Screen**.
 5. Launch it from the icon — full-screen, just like a native app. Future pushes update it automatically.
 
@@ -78,8 +78,3 @@ serve.ps1               local server (no dependencies)
 - **How long data is kept:** change `RETENTION_DAYS` (default `90`) near the top of `app.js`.
 - **Photo size sent to the AI:** `IMG_MAX_EDGE` / `IMG_QUALITY` in `app.js`.
 
-## Note on the rename
-The app is called **Simple_Calorie_Tracker**, but the GitHub repo is still `sebasp-9/macrosnap`, so the
-Pages URL stays `https://sebasp-9.github.io/macrosnap/`. Renaming the repo would change that URL and
-break the icon already on your home screen. The browser storage keys are likewise still `macrosnap.*`
-on purpose: renaming them would orphan the food log already on your device.
