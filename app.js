@@ -1,4 +1,4 @@
-/* MacroSnap — bring-your-own-key calorie & protein tracker (PWA) */
+/* Simple_Calorie_Tracker — bring-your-own-key calorie & protein tracker (PWA) */
 'use strict';
 
 // Clickjacking defense-in-depth: refuse to run inside a frame.
@@ -40,6 +40,15 @@ const LOG_KEY = 'macrosnap.log'; // { 'YYYY-MM-DD': [ {id,name,quantity,calories
 // pruneOldData): local storage stays small and old meals don't linger on the device.
 const RETENTION_DAYS = 90; // ~3 months
 
+// API keys are sent as HTTP header values, and a header value containing a newline or a
+// non-ASCII byte makes fetch() throw a TypeError. That used to be indistinguishable from
+// "you're offline", so a key with a stray newline (very easy to paste) silently queued
+// every meal forever instead of reporting a bad key. Strip to printable ASCII here, at
+// the boundary, so a trailing newline is forgiven and a hostile one can't be smuggled in.
+function cleanKey(v) {
+  return typeof v === 'string' ? v.replace(/[^\x21-\x7E]/g, '').slice(0, 500) : '';
+}
+
 // Coerce whatever is in storage / the settings form into a known-good shape.
 // This is a security boundary: it whitelists `provider` against PROVIDERS (so an
 // API key can never be sent to an endpoint we didn't intend), copies ONLY known
@@ -52,8 +61,8 @@ function normalizeSettings(raw) {
   const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
   return {
     provider: Object.prototype.hasOwnProperty.call(PROVIDERS, raw.provider) ? raw.provider : def.provider,
-    apiKey: str(raw.apiKey, 500),
-    model: str(raw.model, 100),
+    apiKey: cleanKey(raw.apiKey),
+    model: str(raw.model, 100).replace(/[^\w.:-]/g, ''),
     calGoal: goal(raw.calGoal, def.calGoal),
     proGoal: goal(raw.proGoal, def.proGoal),
   };
@@ -65,12 +74,19 @@ function loadSettings() {
 }
 // The API key is NEVER persisted to localStorage in plaintext — it's encrypted in
 // IndexedDB via storeApiKey(). We strip it here so no code path can leak it to disk.
-function saveSettingsObj(s) { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, apiKey: '' })); }
+function saveSettingsObj(s) {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, apiKey: '' })); } catch {}
+}
 
 function loadLog() {
   try { return JSON.parse(localStorage.getItem(LOG_KEY) || '{}'); } catch { return {}; }
 }
-function saveLog(log) { localStorage.setItem(LOG_KEY, JSON.stringify(log)); }
+// Returns false when the write failed (quota exhausted, or storage blocked entirely as it
+// is in some private-browsing modes). Callers that the user is watching report it.
+function saveLog(log) {
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); return true; }
+  catch { return false; }
+}
 
 // ---------- Encrypted API-key storage (WebCrypto + IndexedDB) ----------
 // The key is never stored in plaintext. A 256-bit AES-GCM key is generated as
@@ -174,6 +190,7 @@ async function initKey() {
 let settings = loadSettings();
 let viewDate = new Date();
 let pendingImage = null; // { base64, mime }
+let preparingPhoto = false; // sanitising a photo takes a moment; block Analyze until it lands
 
 // ---------- Helpers ----------
 const $ = (id) => document.getElementById(id);
@@ -257,7 +274,10 @@ function openAddSheet() {
   $('addTitle').textContent = 'Add food';
   $('addSheet').classList.remove('hidden');
 }
-function closeAddSheet() { $('addSheet').classList.add('hidden'); }
+function closeAddSheet() {
+  stopDictation(); // otherwise the mic keeps listening and typing into a hidden sheet
+  $('addSheet').classList.add('hidden');
+}
 
 // ---------- Photo intake ----------
 // The copy we send is re-encoded at most IMG_MAX_EDGE px on its long side. 1024 is
@@ -326,6 +346,9 @@ function decodeViaImgEl(file) {
 // Attach a photo to whatever is already in the open sheet (does NOT reset typed
 // text or manual rows). Used by both the Camera and Gallery buttons.
 async function handlePhoto(file) {
+  const analyzeBtn = $('analyzeBtn');
+  preparingPhoto = true;
+  analyzeBtn.disabled = true;
   setStatus('Preparing photo…', false);
   try {
     const img = await sanitizeImage(file);
@@ -339,6 +362,9 @@ async function handlePhoto(file) {
     // sanitizeImage failed before touching pendingImage, so any photo
     // already attached stays attached.
     setStatus(err && typeof err.message === 'string' ? err.message : "Couldn't use that photo.", true);
+  } finally {
+    preparingPhoto = false;
+    analyzeBtn.disabled = false;
   }
 }
 
@@ -350,6 +376,9 @@ function clearPendingPhoto() {
 
 // ---------- AI analysis ----------
 async function analyze() {
+  // Tapping Analyze while a big photo is still being downscaled used to send the meal
+  // without it.
+  if (preparingPhoto) { setStatus('Still preparing the photo…', false); return; }
   if (!settings.apiKey) { openSettings(); return; }
   const text = $('descInput').value.trim();
   if (!text && !pendingImage) {
@@ -561,13 +590,14 @@ function recalcResults() {
 }
 
 function saveResults() {
+  if ($('addSheet').classList.contains('hidden')) return; // a second tap of Save
   const rows = readResultRows().filter((r) => r.calories || r.protein || r.name !== 'Food');
   if (!rows.length) { closeAddSheet(); return; }
   const log = loadLog();
   const key = dateKey(viewDate);
   log[key] = log[key] || [];
   rows.forEach((r) => log[key].push({ id: uid(), ...r, ts: Date.now() }));
-  saveLog(log);
+  if (!saveLog(log)) { setStatus('Could not save: this device is out of storage.', true); return; }
   closeAddSheet();
   render();
 }
@@ -575,6 +605,7 @@ function saveResults() {
 // ---------- Manual add ----------
 function manualAdd() {
   openAddSheet();
+  $('addTitle').textContent = 'Manual entry';
   showResults([{ name: '', quantity: '', calories: 0, protein: 0 }]);
   $('analyzeStatus').classList.add('hidden');
 }
@@ -609,10 +640,23 @@ function setupMic() {
   };
 }
 
+function stopDictation() {
+  if (!recognition) return;
+  try { recognition.stop(); } catch {}
+  $('micBtn').classList.remove('live');
+}
+
 // ---------- Settings ----------
 function openSettings() {
   $('providerSel').value = settings.provider;
-  $('keyInput').value = settings.apiKey;
+  // The saved key is deliberately NOT written back into the input. It is already in
+  // memory; a second copy sitting in a DOM node is just more surface. A blank field
+  // means "keep the key I already have".
+  const hasKey = !!settings.apiKey;
+  const keyInput = $('keyInput');
+  keyInput.value = '';
+  keyInput.placeholder = hasKey ? 'Saved. Type a new key to replace it.' : 'Paste your key';
+  $('removeKeyBtn').classList.toggle('hidden', !hasKey);
   $('modelInput').value = settings.model;
   $('calGoalInput').value = settings.calGoal;
   $('proGoalInput').value = settings.proGoal;
@@ -629,26 +673,63 @@ function updateProviderHelp() {
 }
 
 async function saveSettings() {
+  const keyInput = $('keyInput');
+  const typed = keyInput.value.trim();
+  if (typed && !cleanKey(typed)) { showToast('That key had no usable characters.'); return; }
   settings = normalizeSettings({
     provider: $('providerSel').value,
-    apiKey: $('keyInput').value.trim(),
+    apiKey: typed || settings.apiKey, // blank field keeps the existing key
     model: $('modelInput').value.trim(),
     calGoal: $('calGoalInput').value,
     proGoal: $('proGoalInput').value,
   });
   await storeApiKey(settings.apiKey); // encrypt to IndexedDB (or clear if emptied)
   saveSettingsObj(settings);          // localStorage WITHOUT the key
+  keyInput.value = '';
   closeSettings();
   render();
+  processQueue(); // a key added just now can unblock meals waiting in the queue
+}
+
+async function removeKey() {
+  const keyInput = $('keyInput');
+  settings.apiKey = '';
+  await storeApiKey('');
+  saveSettingsObj(settings);
+  keyInput.value = '';
+  keyInput.placeholder = 'Paste your key';
+  $('removeKeyBtn').classList.add('hidden');
+  render();
+  showToast('Saved key removed from this device.');
+}
+
+// Every trace of the app on this device: log, counters, settings, the encrypted key and
+// its wrapping key, and anything queued. Irreversible, so it asks first.
+async function wipeAllData() {
+  if (!confirm('Erase your food log, settings and saved API key on this device? This cannot be undone.')) return;
+  try {
+    [LOG_KEY, REQ_KEY, SETTINGS_KEY].forEach((k) => localStorage.removeItem(k));
+  } catch { /* storage blocked; nothing was stored anyway */ }
+  try { for (const q of await idbGetAll()) await idbDelete(q.id); } catch {}
+  try { await secretDelete('apikey'); await secretDelete('aeskey'); } catch {}
+  settings = normalizeSettings({});
+  viewDate = new Date();
+  closeSettings();
+  render();
+  updateReqCount();
+  refreshQueueBadge();
+  showToast('Everything deleted.');
 }
 
 function exportData() {
   const blob = new Blob([JSON.stringify({ settings: { ...settings, apiKey: '' }, log: loadLog() }, null, 2)],
     { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'macrosnap-export.json';
+  a.href = url;
+  a.download = 'simple-calorie-tracker-export.json';
   a.click();
+  URL.revokeObjectURL(url); // otherwise the blob is pinned for the life of the page
 }
 
 // ---------- Daily request counter (free-tier budget awareness) ----------
@@ -661,7 +742,8 @@ function bumpRequestCount() {
   // keep only the last ~14 days
   const days = Object.keys(c).sort();
   while (days.length > 14) { delete c[days.shift()]; }
-  localStorage.setItem(REQ_KEY, JSON.stringify(c));
+  // A full quota here must not abort the analysis that is about to run.
+  try { localStorage.setItem(REQ_KEY, JSON.stringify(c)); } catch {}
   updateReqCount();
 }
 function updateReqCount() {
@@ -752,8 +834,10 @@ async function processQueue() {
         const results = await callProvider(payload.text, payload.image);
         if (results.length) {
           const log = loadLog();
-          log[q.date] = log[q.date] || [];
-          results.forEach((r) => log[q.date].push({ id: uid(), ...r, ts: Date.now() }));
+          // q.date came off disk: only ever index the log with a real date key.
+          const day = DATE_KEY_RE.test(q.date) ? q.date : dateKey(new Date());
+          log[day] = log[day] || [];
+          results.forEach((r) => log[day].push({ id: uid(), ...r, ts: Date.now() }));
           saveLog(log);
           logged += results.length;
         }
@@ -786,6 +870,7 @@ function statsFor(daysBack) {
   daysBack = Math.min(daysBack, RETENTION_DAYS); // nothing older than the window exists
   const log = loadLog();
   const today = new Date();
+  today.setHours(0, 0, 0, 0); // step back from midnight so a DST shift can't skip a day
   let totalCal = 0, totalPro = 0, daysLogged = 0;
   const perDay = [];
   for (let i = 0; i < daysBack; i++) {
@@ -924,6 +1009,8 @@ async function init() {
   $('saveSettings').onclick = saveSettings;
   $('closeSettings').onclick = closeSettings;
   $('exportData').onclick = exportData;
+  $('removeKeyBtn').onclick = removeKey;
+  $('wipeData').onclick = wipeAllData;
 
   $('prevDay').onclick = () => {
     if (dateKey(viewDate) <= retentionFloorKey()) return; // don't walk into deleted days
@@ -936,15 +1023,27 @@ async function init() {
   $('recapBtn').onclick = openRecap;
   $('closeRecap').onclick = () => $('recapSheet').classList.add('hidden');
 
-  // Close sheets when tapping the dark backdrop
+  // Close sheets when tapping the dark backdrop, or on Escape. Route the add sheet
+  // through closeAddSheet so dictation is always stopped with it.
+  const dismiss = (sheet) => {
+    if (sheet.id === 'addSheet') closeAddSheet();
+    else sheet.classList.add('hidden');
+  };
   document.querySelectorAll('.sheet').forEach((sheet) => {
-    sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.classList.add('hidden'); });
+    sheet.addEventListener('click', (e) => { if (e.target === sheet) dismiss(sheet); });
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('.sheet:not(.hidden)').forEach(dismiss);
   });
 
   setupMic();
   $('retentionDays').textContent = RETENTION_DAYS;
-  await initKey(); // decrypt key into memory (and migrate any legacy plaintext key)
-  await pruneOldData(); // enforce the retention window before anything is shown
+  // Neither of these may take the app down with them. IndexedDB is unavailable outright
+  // in some private-browsing modes, and before this an exception here meant the UI never
+  // rendered at all: a blank, unusable app rather than a degraded one.
+  try { await initKey(); } catch { /* key stays in memory for this session only */ }
+  try { await pruneOldData(); } catch { /* show whatever is there */ }
   render();
   updateReqCount();
   refreshQueueBadge();
@@ -952,7 +1051,8 @@ async function init() {
   // A PWA can stay open for days; re-prune when it returns to the foreground so the
   // window keeps moving without needing a restart.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') pruneOldData().then((n) => { if (n) render(); });
+    if (document.visibilityState !== 'visible') return;
+    pruneOldData().then((n) => { if (n) render(); }).catch(() => {});
   });
 
   // Process any queued meals when connectivity returns (and once on load).

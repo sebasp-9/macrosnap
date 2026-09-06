@@ -1,5 +1,4 @@
-# 🍽 MacroSnap
-
+# Simple_Calorie_Tracker
 A simple calorie and protein tracker, you snap a photo of (or just talk to), and an AI fills in the numbers.
 
 ## Why I made this
@@ -57,6 +56,8 @@ iPhones need an HTTPS link to install a web app, and GitHub Pages gives you one 
 - **Photos are scrubbed before they leave your phone.** Camera or gallery, the image is re-encoded through a canvas, which keeps only the pixels: **no EXIF, so no GPS coordinates, no capture timestamp, no device serial, no embedded thumbnail.** It is also downscaled to 1024px, which keeps the upload (and the token cost) small. A gallery photo taken at home would otherwise carry your home's coordinates straight to the AI provider.
 - **Choosing from the gallery does not give the app access to your gallery.** The picker is the operating system's own UI. The page never sees your library, only the single file you hand it, and no permission is granted or retained.
 - **Meals queued while offline are encrypted** in IndexedDB with the same non-extractable key, since a queued meal can hold a photo and may sit on disk for days.
+- **The saved key is never written back into the settings form.** It lives in memory and in encrypted storage, and nowhere else. Leave the field blank to keep it, type to replace it, or use **Remove saved key**.
+- **Delete everything** in Settings wipes the log, counters, settings, the encrypted key and its wrapping key, and anything queued. It asks first, and it cannot be undone.
 - **Nothing is kept forever.** Log entries, request counts and queued meals older than 3 months are deleted automatically on launch (`RETENTION_DAYS` in `app.js`). The recap covers that same window.
 - **What gets sent:** only your (scrubbed) photo and/or text, only to your chosen provider, only when you tap Analyze. Nothing else.
 
@@ -76,3 +77,9 @@ serve.ps1               local server (no dependencies)
 - **How it estimates:** edit `SYSTEM_PROMPT` near the top of `app.js`.
 - **How long data is kept:** change `RETENTION_DAYS` (default `90`) near the top of `app.js`.
 - **Photo size sent to the AI:** `IMG_MAX_EDGE` / `IMG_QUALITY` in `app.js`.
+
+## Note on the rename
+The app is called **Simple_Calorie_Tracker**, but the GitHub repo is still `sebasp-9/macrosnap`, so the
+Pages URL stays `https://sebasp-9.github.io/macrosnap/`. Renaming the repo would change that URL and
+break the icon already on your home screen. The browser storage keys are likewise still `macrosnap.*`
+on purpose: renaming them would orphan the food log already on your device.

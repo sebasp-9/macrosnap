@@ -40,10 +40,11 @@ body {
   background: linear-gradient(180deg, var(--bg) 70%, transparent);
   backdrop-filter: blur(8px);
 }
-.topbar-title { text-align: center; }
-.topbar-actions { display: flex; gap: 8px; }
-.topbar-spacer { width: 88px; flex: none; } /* balances the two right-side buttons so the title stays centered */
-.topbar h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+/* The title is left-aligned rather than centred: a centring spacer would cost 88px and
+   the app name no longer fits in what is left on a 375px phone. */
+.topbar-title { flex: 1; min-width: 0; }
+.topbar-actions { display: flex; gap: 8px; flex: none; }
+.topbar h1 { font-size: 15px; margin: 0; letter-spacing: .2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .day-label {
   background: none; border: none; color: var(--muted);
   font-size: 13px; padding: 2px 6px; cursor: pointer;
@@ -178,7 +179,10 @@ input, select, textarea {
 textarea { resize: vertical; }
 .describe-row { display: flex; gap: 8px; align-items: stretch; }
 .describe-row textarea { flex: 1; }
-.mic { width: 48px; border: 1px solid var(--line); background: var(--card-2); border-radius: 12px; font-size: 20px; cursor: pointer; }
+.mic {
+  flex: none; padding: 0 14px; border: 1px solid var(--line); background: var(--card-2);
+  color: var(--text); border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
 .mic.live { background: var(--danger); border-color: var(--danger); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .5; } }
 .muted { color: var(--muted); }
@@ -233,7 +237,7 @@ small.muted { font-size: 11px; }
 .result-total { display: flex; justify-content: space-between; margin: 12px 2px; font-size: 15px; }
 .result-total b { font-size: 18px; }
 
-.settings-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 6px; }
+.settings-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
 
 /* Recap */
 .recap-block { background: var(--card-2); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
@@ -252,3 +256,6 @@ small.muted { font-size: 11px; }
 
 /* Retention note at the foot of the recap sheet */
 .recap-foot { font-size: 11px; color: var(--muted); text-align: center; margin: 4px 0 0; }
+
+/* Destructive action in the settings footer */
+.link.danger { color: var(--danger); }

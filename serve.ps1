@@ -1,4 +1,4 @@
-# MacroSnap local server — no Node/Python needed.
+# Simple_Calorie_Tracker local server — no Node/Python needed.
 # Run:  powershell -ExecutionPolicy Bypass -File serve.ps1
 # Then open http://localhost:8000 in your browser.
 $port = 8000
@@ -10,7 +10,7 @@ $listener = New-Object System.Net.HttpListener
 # is "localhost", which also blocks DNS-rebinding attacks from other origins.
 $listener.Prefixes.Add("http://localhost:$port/")
 $listener.Start()
-Write-Host "MacroSnap running at http://localhost:$port/  (Ctrl+C to stop)" -ForegroundColor Green
+Write-Host "Simple_Calorie_Tracker running at http://localhost:$port/  (Ctrl+C to stop)" -ForegroundColor Green
 while ($listener.IsListening) {
   $ctx = $listener.GetContext()
   try {
@@ -18,6 +18,14 @@ while ($listener.IsListening) {
     $ctx.Response.Headers['X-Content-Type-Options'] = 'nosniff'
     $ctx.Response.Headers['X-Frame-Options'] = 'DENY'
     $ctx.Response.Headers['Referrer-Policy'] = 'no-referrer'
+    # Deny the capabilities the app genuinely never uses. camera/microphone are NOT listed:
+    # dictation needs the microphone, and the photo inputs need the camera. Note GitHub
+    # Pages cannot send these, so they are a local-dev safety net, not the real control.
+    $ctx.Response.Headers['Permissions-Policy'] = 'geolocation=(), payment=(), usb=(), midi=(), serial=(), bluetooth=(), interest-cohort=()'
+    $ctx.Response.Headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+    $ctx.Response.Headers['Cross-Origin-Resource-Policy'] = 'same-origin'
+    # Local dev is HTTP, so a stale HSTS pin would be actively harmful; deliberately absent.
+    $ctx.Response.Headers['Cache-Control'] = 'no-store'
 
     # Only GET/HEAD make sense for a static file server.
     if ($ctx.Request.HttpMethod -ne 'GET' -and $ctx.Request.HttpMethod -ne 'HEAD') {

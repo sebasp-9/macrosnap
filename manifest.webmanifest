@@ -1,7 +1,7 @@
 {
-  "name": "MacroSnap",
-  "short_name": "MacroSnap",
-  "description": "Snap or speak your meals — AI counts the calories and protein.",
+  "name": "Simple_Calorie_Tracker",
+  "short_name": "Simple_Calorie_Tracker",
+  "description": "Photograph or describe your meals and let AI estimate the calories and protein.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

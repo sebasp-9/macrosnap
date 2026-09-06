@@ -1,5 +1,5 @@
-/* MacroSnap service worker — offline app shell (network-first) */
-const CACHE = 'macrosnap-v4';
+/* Simple_Calorie_Tracker service worker — offline app shell (network-first) */
+const CACHE = 'sct-v5';
 const ASSETS = [
   './',
   './index.html',

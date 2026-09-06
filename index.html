@@ -6,8 +6,8 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com; base-uri 'none'; form-action 'none'; object-src 'none'; upgrade-insecure-requests" />
   <meta name="referrer" content="no-referrer" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>MacroSnap</title>
-  <meta name="description" content="Snap or speak your meals — AI counts the calories and protein." />
+  <title>Simple_Calorie_Tracker</title>
+  <meta name="description" content="Photograph or describe your meals and let AI estimate the calories and protein." />
 
   <!-- PWA -->
   <link rel="manifest" href="manifest.webmanifest" />
@@ -16,16 +16,15 @@
   <!-- iOS home-screen app -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="MacroSnap" />
+  <meta name="apple-mobile-web-app-title" content="Simple_Calorie_Tracker" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
 
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="topbar">
-    <div class="topbar-spacer"></div>
     <div class="topbar-title">
-      <h1>MacroSnap</h1>
+      <h1>Simple_Calorie_Tracker</h1>
     </div>
     <div class="topbar-actions">
       <button id="recapBtn" class="icon-btn" aria-label="Week & month recap">📊</button>
@@ -97,8 +96,8 @@
       <img id="previewImg" class="preview hidden" alt="Food photo preview" />
 
       <div class="photo-row">
-        <button id="cameraBtn" class="btn-photo" type="button">📷 <span>Camera</span></button>
-        <button id="galleryBtn" class="btn-photo" type="button">🖼 <span>Gallery</span></button>
+        <button id="cameraBtn" class="btn-photo" type="button">Camera</button>
+        <button id="galleryBtn" class="btn-photo" type="button">Gallery</button>
       </div>
       <div id="photoNote" class="photo-note hidden">
         <span id="photoNoteText"></span>
@@ -109,19 +108,19 @@
         <span>Describe it (optional with a photo)</span>
         <span class="describe-row">
           <textarea id="descInput" rows="2" placeholder="e.g. two scrambled eggs and a slice of toast"></textarea>
-          <button id="micBtn" class="mic" aria-label="Dictate">🎙</button>
+          <button id="micBtn" class="mic" type="button" aria-label="Dictate">Speak</button>
         </span>
-        <small class="muted">Tip: tap the 🎤 on your keyboard to speak instead of type.</small>
+        <small class="muted">Tip: your keyboard's dictation key works here too.</small>
       </label>
 
-      <button id="analyzeBtn" class="btn-primary">✨ Analyze with AI</button>
+      <button id="analyzeBtn" class="btn-primary" type="button">Analyze</button>
       <div id="analyzeStatus" class="status hidden"></div>
 
       <!-- AI results, editable -->
       <div id="resultBox" class="result-box hidden">
-        <h4>Detected — edit if needed, then save</h4>
+        <h4>Detected. Edit if needed, then save.</h4>
         <ul id="resultList" class="result-list"></ul>
-        <button id="addItemRow" class="link">＋ Add a row</button>
+        <button id="addItemRow" class="link" type="button">Add a row</button>
         <div class="result-total">
           <span><b id="resCal">0</b> kcal</span>
           <span><b id="resPro">0</b> g protein</span>
@@ -150,13 +149,19 @@
 
       <label class="field">
         <span>API key</span>
+        <!-- type="password" already suppresses iOS autocorrect and autocapitalisation. -->
         <input id="keyInput" type="password" autocomplete="off" placeholder="Paste your key" />
         <small id="keyHelp" class="muted"></small>
       </label>
+      <button id="removeKeyBtn" class="link hidden" type="button">Remove saved key</button>
 
       <label class="field">
         <span>Model</span>
-        <input id="modelInput" type="text" autocomplete="off" placeholder="model name" />
+        <!-- Without these, iOS autocapitalises a model name like gemini-2.5-flash and the
+             request 404s. `autocorrect` was a WebKit extension before the HTML spec
+             adopted it, so some IDE inspection databases still call it obsolete. -->
+        <!--suppress HtmlDeprecatedAttribute, HtmlUnknownAttribute -->
+        <input id="modelInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="model name" />
       </label>
 
       <div class="field-row">
@@ -170,11 +175,12 @@
         </label>
       </div>
 
-      <button id="saveSettings" class="btn-primary">Save</button>
+      <button id="saveSettings" class="btn-primary" type="button">Save</button>
       <div class="settings-foot">
-        <button id="exportData" class="link">Export data</button>
-        <button id="closeSettings" class="btn-ghost">Close</button>
+        <button id="exportData" class="link" type="button">Export data</button>
+        <button id="wipeData" class="link danger" type="button">Delete everything</button>
       </div>
+      <button id="closeSettings" class="btn-ghost" type="button">Close</button>
       <p class="muted tiny">Your key and food log stay on this device. Photos are stripped of all metadata (including GPS location) and shrunk before they leave your phone, and are sent only to the provider you choose, only when you tap Analyze.</p>
       <p class="muted tiny">Entries older than <b id="retentionDays">90</b> days are deleted automatically, so the app stays small and old meals don't linger on your device.</p>
     </div>
