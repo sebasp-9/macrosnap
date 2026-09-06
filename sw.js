@@ -1,5 +1,5 @@
 /* MacroSnap service worker — offline app shell (network-first) */
-const CACHE = 'macrosnap-v3';
+const CACHE = 'macrosnap-v4';
 const ASSETS = [
   './',
   './index.html',

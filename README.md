@@ -9,8 +9,9 @@ I just wanted to track my calories and protein without the usual nonsense. Every
 So I built my own. You bring your own (free) AI key, your data stays on your phone, there's no account, no ads, no subscription, and nothing tracking you. 
 
 ## What it does
--  Snap a photo of your meal, or 🎙 just describe it (use your phone keyboard's mic to talk) - the AI estimates calories + protein per item, and you can tweak anything before saving
+-  Snap a photo of your meal **or pick one from your gallery** (forgot to open the app at dinner? add it later), or 🎙 just describe it (use your phone keyboard's mic to talk) - the AI estimates calories + protein per item, and you can tweak anything before saving
 -  Daily calorie/protein goals with progress bars; browse previous days
+-  Week / month / 3-month recap; anything older than 3 months is deleted automatically so the app never bloats
 -  Works offline - log a meal with no signal and it analyzes itself once you're back online
 -  100% on your device: your key and food log live only in your browser, nothing is sent anywhere except the AI provider you pick
 -  Installs to your home screen like a real app (it's a PWA)
@@ -53,13 +54,17 @@ iPhones need an HTTPS link to install a web app, and GitHub Pages gives you one 
 ## Privacy
 - **Your key** is stored only in this browser, never in the code, and never sent anywhere except the AI provider you chose. It's **encrypted at rest** with a non-extractable AES-GCM key (Web Crypto) and kept in IndexedDB — never as plaintext in localStorage. The app also uses a Content-Security-Policy that blocks it from talking to anything else. Treat the key like a password and lock your phone.
 - **Your food log** stays on your device. Use **Export data** in Settings to back it up as JSON.
-- **What gets sent:** only your photo and/or text, only to your chosen provider, only when you tap Analyze. Nothing else.
+- **Photos are scrubbed before they leave your phone.** Camera or gallery, the image is re-encoded through a canvas, which keeps only the pixels: **no EXIF, so no GPS coordinates, no capture timestamp, no device serial, no embedded thumbnail.** It is also downscaled to 1024px, which keeps the upload (and the token cost) small. A gallery photo taken at home would otherwise carry your home's coordinates straight to the AI provider.
+- **Choosing from the gallery does not give the app access to your gallery.** The picker is the operating system's own UI. The page never sees your library, only the single file you hand it, and no permission is granted or retained.
+- **Meals queued while offline are encrypted** in IndexedDB with the same non-extractable key, since a queued meal can hold a photo and may sit on disk for days.
+- **Nothing is kept forever.** Log entries, request counts and queued meals older than 3 months are deleted automatically on launch (`RETENTION_DAYS` in `app.js`). The recap covers that same window.
+- **What gets sent:** only your (scrubbed) photo and/or text, only to your chosen provider, only when you tap Analyze. Nothing else.
 
 ## Files
 ```
 index.html              the UI
 styles.css              styling (dark, phone-friendly)
-app.js                  logic: camera, voice, AI calls, storage, offline queue
+app.js                  logic: camera/gallery, voice, AI calls, storage, offline queue, retention
 manifest.webmanifest    PWA manifest
 sw.js                   service worker (offline support)
 icons/                  app icons
@@ -69,3 +74,5 @@ serve.ps1               local server (no dependencies)
 ## Tweaking it
 - **Models:** any vision-capable model from your provider works — just type its name in Settings.
 - **How it estimates:** edit `SYSTEM_PROMPT` near the top of `app.js`.
+- **How long data is kept:** change `RETENTION_DAYS` (default `90`) near the top of `app.js`.
+- **Photo size sent to the AI:** `IMG_MAX_EDGE` / `IMG_QUALITY` in `app.js`.

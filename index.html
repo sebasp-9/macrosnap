@@ -84,8 +84,9 @@
     <button id="manualBtn" class="action">✍️<span>Manual</span></button>
   </nav>
 
-  <!-- Hidden camera input -->
-  <input id="photoInput" type="file" accept="image/*" capture="environment" hidden />
+  <!-- Photo sources: camera forces the camera, gallery (no `capture`) opens the OS picker. -->
+  <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden />
+  <input id="galleryInput" type="file" accept="image/*" hidden />
 
   <!-- Add-food sheet -->
   <div id="addSheet" class="sheet hidden" role="dialog" aria-modal="true">
@@ -96,8 +97,12 @@
       <img id="previewImg" class="preview hidden" alt="Food photo preview" />
 
       <div class="photo-row">
-        <button id="addPhotoBtn" class="btn-photo" type="button">📷 <span id="addPhotoLabel">Add a photo</span></button>
-        <button id="removePhotoBtn" class="btn-removephoto hidden" type="button">Remove</button>
+        <button id="cameraBtn" class="btn-photo" type="button">📷 <span>Camera</span></button>
+        <button id="galleryBtn" class="btn-photo" type="button">🖼 <span>Gallery</span></button>
+      </div>
+      <div id="photoNote" class="photo-note hidden">
+        <span id="photoNoteText"></span>
+        <button id="removePhotoBtn" class="btn-removephoto" type="button">Remove</button>
       </div>
 
       <label class="field">
@@ -170,7 +175,8 @@
         <button id="exportData" class="link">Export data</button>
         <button id="closeSettings" class="btn-ghost">Close</button>
       </div>
-      <p class="muted tiny">Your key and food log stay on this device. Photos are sent only to the provider you choose, only when you tap Analyze.</p>
+      <p class="muted tiny">Your key and food log stay on this device. Photos are stripped of all metadata (including GPS location) and shrunk before they leave your phone, and are sent only to the provider you choose, only when you tap Analyze.</p>
+      <p class="muted tiny">Entries older than <b id="retentionDays">90</b> days are deleted automatically, so the app stays small and old meals don't linger on your device.</p>
     </div>
   </div>
 

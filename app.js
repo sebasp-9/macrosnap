@@ -36,6 +36,10 @@ const SYSTEM_PROMPT =
 const SETTINGS_KEY = 'macrosnap.settings';
 const LOG_KEY = 'macrosnap.log'; // { 'YYYY-MM-DD': [ {id,name,quantity,calories,protein,ts} ] }
 
+// How much history the app keeps. Anything older is deleted automatically (see
+// pruneOldData): local storage stays small and old meals don't linger on the device.
+const RETENTION_DAYS = 90; // ~3 months
+
 // Coerce whatever is in storage / the settings form into a known-good shape.
 // This is a security boundary: it whitelists `provider` against PROVIDERS (so an
 // API key can never be sent to an endpoint we didn't intend), copies ONLY known
@@ -138,6 +142,21 @@ async function loadApiKey() {
   } catch { return ''; }
 }
 
+// Encrypt/decrypt anything else we keep on disk, reusing the same non-extractable key.
+// Used for the offline queue, whose records can contain a photo of your food (and home).
+async function encJSON(obj) {
+  const key = await getCryptoKey();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key,
+    new TextEncoder().encode(JSON.stringify(obj)));
+  return { iv, data };
+}
+async function decJSON(enc) {
+  const key = await getCryptoKey();
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: enc.iv }, key, enc.data);
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
 // Run once at startup: migrate any legacy plaintext key out of localStorage, then
 // load the decrypted key into memory for this session.
 async function initKey() {
@@ -164,6 +183,9 @@ function dateKey(d) {
 function isToday(d) { return dateKey(d) === dateKey(new Date()); }
 function num(v) { const n = parseFloat(v); return isFinite(n) ? n : 0; }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function formatBytes(n) {
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+}
 
 // ---------- Rendering ----------
 function render() {
@@ -184,6 +206,7 @@ function render() {
     ? 'Today'
     : viewDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   $('nextDay').disabled = isToday(viewDate); // can't go past today
+  $('prevDay').disabled = key <= retentionFloorKey(); // nothing older is kept
 
   const list = $('logList');
   list.innerHTML = '';
@@ -217,13 +240,11 @@ function deleteItem(key, id) {
 }
 
 // ---------- Add-food sheet ----------
-// Reflect whether a photo is attached: show/hide the preview + Remove button and
-// flip the photo button between "Add a photo" / "Change photo".
+// Reflect whether a photo is attached: show/hide the preview and the note row.
 function reflectPhotoState() {
   const has = !!pendingImage;
   $('previewImg').classList.toggle('hidden', !has);
-  $('removePhotoBtn').classList.toggle('hidden', !has);
-  $('addPhotoLabel').textContent = has ? 'Change photo' : 'Add a photo';
+  $('photoNote').classList.toggle('hidden', !has);
 }
 
 function openAddSheet() {
@@ -238,18 +259,87 @@ function openAddSheet() {
 }
 function closeAddSheet() { $('addSheet').classList.add('hidden'); }
 
+// ---------- Photo intake ----------
+// The copy we send is re-encoded at most IMG_MAX_EDGE px on its long side. 1024 is
+// plenty for "what food is this" and keeps the upload (and the token bill) small.
+const IMG_MAX_EDGE = 1024;
+const IMG_QUALITY = 0.82;
+const IMG_MAX_BYTES = 25 * 1024 * 1024;
+
+// Decode a picked file to pixels, then re-encode it through a canvas.
+// This is the privacy step. A canvas re-encode keeps ONLY the pixels, so the copy that
+// leaves the device carries no EXIF whatsoever: no GPS coordinates, no capture time, no
+// device serial, no embedded thumbnail. Gallery photos are usually full of that (a photo
+// taken at home geotags your home), and camera shots often are too. Downscaling also
+// bounds what we upload, so a 12 MP shot can't push a huge payload to the provider.
+async function sanitizeImage(file) {
+  if (!file || typeof file.type !== 'string' || !file.type.startsWith('image/')) {
+    throw new Error("That file isn't an image.");
+  }
+  if (file.size > IMG_MAX_BYTES) throw new Error('That image is too large (over 25 MB).');
+
+  const src = await decodeImage(file);
+  const scale = Math.min(1, IMG_MAX_EDGE / Math.max(src.width, src.height));
+  const w = Math.max(1, Math.round(src.width * scale));
+  const h = Math.max(1, Math.round(src.height * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext('2d').drawImage(src, 0, 0, w, h);
+  if (typeof src.close === 'function') src.close(); // release the ImageBitmap
+
+  const dataUrl = canvas.toDataURL('image/jpeg', IMG_QUALITY);
+  const base64 = dataUrl.split(',')[1] || '';
+  if (!base64) throw new Error("Couldn't process that image.");
+  return { base64, mime: 'image/jpeg', dataUrl, w, h, bytes: Math.round((base64.length * 3) / 4) };
+}
+
+function decodeImage(file) {
+  if (window.createImageBitmap) {
+    // 'from-image' applies the EXIF orientation flag while decoding, so a portrait photo
+    // doesn't come out sideways once we throw the metadata away.
+    return createImageBitmap(file, { imageOrientation: 'from-image' })
+      .catch(() => createImageBitmap(file))
+      .catch(() => decodeViaImgEl(file));
+  }
+  return decodeViaImgEl(file);
+}
+
+// Fallback decoder. Deliberately routed through a data: URL rather than URL.createObjectURL:
+// our CSP allows `img-src 'self' data:` and NOT blob:, and widening the CSP for a fallback
+// path isn't worth it.
+function decodeViaImgEl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Couldn't read that file."));
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("Your browser couldn't decode that image. HEIC photos may need saving as JPEG first."));
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 // Attach a photo to whatever is already in the open sheet (does NOT reset typed
-// text or manual rows). Used by both the Add-food and Manual flows.
-function handlePhoto(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const dataUrl = reader.result;
-    const mime = (dataUrl.match(/^data:(.*?);base64,/) || [])[1] || 'image/jpeg';
-    pendingImage = { base64: dataUrl.split(',')[1], mime };
-    $('previewImg').src = dataUrl;
+// text or manual rows). Used by both the Camera and Gallery buttons.
+async function handlePhoto(file) {
+  setStatus('Preparing photo…', false);
+  try {
+    const img = await sanitizeImage(file);
+    pendingImage = { base64: img.base64, mime: img.mime };
+    $('previewImg').src = img.dataUrl;
+    $('photoNoteText').textContent =
+      `Metadata stripped · ${img.w}\u00d7${img.h} · ${formatBytes(img.bytes)}`;
     reflectPhotoState();
-  };
-  reader.readAsDataURL(file);
+    setStatus('', false, true);
+  } catch (err) {
+    // sanitizeImage failed before touching pendingImage, so any photo
+    // already attached stays attached.
+    setStatus(err && typeof err.message === 'string' ? err.message : "Couldn't use that photo.", true);
+  }
 }
 
 function clearPendingPhoto() {
@@ -615,9 +705,28 @@ async function idbDelete(id) {
   });
 }
 
+// A queued meal can sit on disk for days and may hold a photo of your food and your home,
+// so it goes in encrypted with the same non-extractable key the API key uses: only
+// ciphertext reaches IndexedDB. Without WebCrypto (non-secure context) we degrade to
+// plaintext rather than lose the meal.
 async function enqueue(text, image) {
-  await idbAdd({ id: uid(), date: dateKey(viewDate), text: text || '', image: image || null, ts: Date.now() });
+  const base = { id: uid(), date: dateKey(viewDate), ts: Date.now() };
+  if (cryptoOK()) {
+    try {
+      await idbAdd({ ...base, enc: await encJSON({ text: text || '', image: image || null }) });
+      await refreshQueueBadge();
+      return;
+    } catch { /* fall through to plaintext */ }
+  }
+  await idbAdd({ ...base, text: text || '', image: image || null });
   await refreshQueueBadge();
+}
+
+// Read one queued record. New records are encrypted; anything queued before this change
+// is still plaintext, so handle both.
+async function readQueueRec(q) {
+  if (q && q.enc) { try { return await decJSON(q.enc); } catch { return null; } }
+  return { text: (q && q.text) || '', image: (q && q.image) || null };
 }
 
 async function refreshQueueBadge() {
@@ -637,8 +746,10 @@ async function processQueue() {
   let logged = 0;
   try {
     for (const q of items) {
+      const payload = await readQueueRec(q);
+      if (!payload) { await idbDelete(q.id); continue; } // undecryptable, drop it
       try {
-        const results = await callProvider(q.text, q.image);
+        const results = await callProvider(payload.text, payload.image);
         if (results.length) {
           const log = loadLog();
           log[q.date] = log[q.date] || [];
@@ -672,6 +783,7 @@ function showToast(msg) {
 
 // ---------- Recap (week / month) ----------
 function statsFor(daysBack) {
+  daysBack = Math.min(daysBack, RETENTION_DAYS); // nothing older than the window exists
   const log = loadLog();
   const today = new Date();
   let totalCal = 0, totalPro = 0, daysLogged = 0;
@@ -703,6 +815,7 @@ function openRecap() {
 
   const wk = statsFor(7);
   const mo = statsFor(30);
+  const qtr = statsFor(RETENTION_DAYS);
   const maxCal = Math.max(settings.calGoal || 1, ...wk.perDay.map((p) => p.cal), 1);
   const days = wk.perDay.map((p) => {
     const label = isToday(p.d) ? 'Today' : p.d.toLocaleDateString(undefined, { weekday: 'short' });
@@ -719,15 +832,61 @@ function openRecap() {
   recapBody.innerHTML =
     block('This week', 'last 7 days', wk) +
     block('This month', 'last 30 days', mo) +
+    block('Last 3 months', 'last ' + RETENTION_DAYS + ' days', qtr) +
     `<div class="recap-block">
       <div class="recap-h">Daily calories <span>last 7 days</span></div>
       <ul class="recap-days">${days}</ul>
     </div>`;
+  recapBody.insertAdjacentHTML('beforeend',
+    '<p class="recap-foot">Showing the last ' + RETENTION_DAYS +
+    ' days. Older entries are deleted automatically.</p>');
   // Apply bar widths programmatically (allowed by CSP; inline style attributes are not).
   recapBody.querySelectorAll('.rd-bar > div').forEach((el) => {
     el.style.width = (parseFloat(el.dataset.pct) || 0) + '%';
   });
   $('recapSheet').classList.remove('hidden');
+}
+
+// ---------- Retention ----------
+// Date keys are zero-padded YYYY-MM-DD, so a plain string compare is a date compare.
+const DATE_KEY_RE = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
+function retentionFloor() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - (RETENTION_DAYS - 1)); // today counts as day 1 of the window
+  return d;
+}
+function retentionFloorKey() { return dateKey(retentionFloor()); }
+
+// Delete everything outside the window: log days, request counts, queued meals. Keys that
+// aren't well-formed dates go too, since they can only be junk or tampering.
+// Runs at startup and whenever the app returns to the foreground, so a PWA left open
+// across a day boundary still prunes.
+async function pruneOldData() {
+  const floor = retentionFloorKey();
+
+  const log = loadLog();
+  let dropped = 0;
+  for (const k of Object.keys(log)) {
+    if (!DATE_KEY_RE.test(k) || k < floor) { delete log[k]; dropped++; }
+  }
+  if (dropped) saveLog(log);
+
+  const counts = loadReq();
+  let cDropped = 0;
+  for (const k of Object.keys(counts)) {
+    if (!DATE_KEY_RE.test(k) || k < floor) { delete counts[k]; cDropped++; }
+  }
+  if (cDropped) localStorage.setItem(REQ_KEY, JSON.stringify(counts));
+
+  try {
+    const cutoff = retentionFloor().getTime();
+    for (const q of await idbGetAll()) {
+      if (typeof q.ts === 'number' && q.ts < cutoff) await idbDelete(q.id);
+    }
+  } catch { /* queue unavailable, nothing to prune */ }
+
+  return dropped;
 }
 
 // ---------- Wire up ----------
@@ -740,9 +899,17 @@ async function init() {
     updateProviderHelp();
   });
 
-  const photoInput = $('photoInput');
-  photoInput.onchange = (e) => { if (e.target.files[0]) handlePhoto(e.target.files[0]); e.target.value = ''; };
-  $('addPhotoBtn').onclick = () => photoInput.click();
+  // Two photo sources. The gallery input has no 'capture' attribute, and that omission is
+  // exactly what makes the OS offer the photo library instead of jumping to the camera.
+  ['cameraInput', 'galleryInput'].forEach((id) => {
+    $(id).onchange = (e) => {
+      const f = e.target.files[0];
+      e.target.value = ''; // let the same file be picked again
+      if (f) handlePhoto(f);
+    };
+  });
+  $('cameraBtn').onclick = () => $('cameraInput').click();
+  $('galleryBtn').onclick = () => $('galleryInput').click();
   $('removePhotoBtn').onclick = clearPendingPhoto;
   $('describeBtn').onclick = () => openAddSheet();
   $('manualBtn').onclick = manualAdd;
@@ -758,7 +925,11 @@ async function init() {
   $('closeSettings').onclick = closeSettings;
   $('exportData').onclick = exportData;
 
-  $('prevDay').onclick = () => { viewDate.setDate(viewDate.getDate() - 1); render(); };
+  $('prevDay').onclick = () => {
+    if (dateKey(viewDate) <= retentionFloorKey()) return; // don't walk into deleted days
+    viewDate.setDate(viewDate.getDate() - 1);
+    render();
+  };
   $('nextDay').onclick = () => { if (!isToday(viewDate)) { viewDate.setDate(viewDate.getDate() + 1); render(); } };
   $('dayLabel').onclick = () => { viewDate = new Date(); render(); };
 
@@ -771,10 +942,18 @@ async function init() {
   });
 
   setupMic();
+  $('retentionDays').textContent = RETENTION_DAYS;
   await initKey(); // decrypt key into memory (and migrate any legacy plaintext key)
+  await pruneOldData(); // enforce the retention window before anything is shown
   render();
   updateReqCount();
   refreshQueueBadge();
+
+  // A PWA can stay open for days; re-prune when it returns to the foreground so the
+  // window keeps moving without needing a restart.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') pruneOldData().then((n) => { if (n) render(); });
+  });
 
   // Process any queued meals when connectivity returns (and once on load).
   window.addEventListener('online', processQueue);

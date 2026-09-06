@@ -190,15 +190,21 @@ small.muted { font-size: 11px; }
 /* Photo control inside the add sheet */
 .photo-row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 14px; }
 .btn-photo {
-  flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
   background: var(--card-2); color: var(--text);
   border: 1px dashed var(--green); border-radius: 14px;
-  padding: 14px; font-size: 15px; font-weight: 600; cursor: pointer;
+  padding: 12px 8px; font-size: 14px; font-weight: 600; cursor: pointer;
 }
 .btn-removephoto {
   background: none; border: 1px solid var(--line); color: var(--muted);
-  border-radius: 12px; padding: 0 16px; font-size: 13px; cursor: pointer;
+  border-radius: 12px; padding: 6px 14px; font-size: 13px; cursor: pointer;
 }
+/* Row under the preview: what we're about to send + a way to drop it. */
+.photo-note {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: -6px 0 14px; font-size: 11px; color: var(--muted);
+}
+.photo-note span { flex: 1; }
 
 /* Buttons */
 .btn-primary {
@@ -243,3 +249,6 @@ small.muted { font-size: 11px; }
 .rd-bar { height: 8px; background: var(--card); border-radius: 99px; overflow: hidden; }
 .rd-bar > div { height: 100%; background: linear-gradient(90deg, var(--amber), #fbbf24); border-radius: 99px; }
 .rd-val { font-size: 12px; text-align: right; }
+
+/* Retention note at the foot of the recap sheet */
+.recap-foot { font-size: 11px; color: var(--muted); text-align: center; margin: 4px 0 0; }
